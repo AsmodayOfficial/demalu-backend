@@ -1,0 +1,323 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+//////////////////////
+// Enums
+//////////////////////
+
+enum RoomMemberRole {
+  MEMBER
+  MODERATOR
+  OWNER
+}
+
+enum ProposalStatus {
+  OPEN
+  CLOSED
+  CANCELLED
+}
+
+enum ProposalResponseType {
+  PENDING
+  ACCEPT
+  REJECT
+}
+
+enum NotificationType {
+  ROOM_INVITE
+  ROOM_MEMBER_JOINED
+  ROOM_MEMBER_LEFT
+  PROPOSAL_CREATED
+  PROPOSAL_RESPONSE
+  PROPOSAL_CLOSED
+  PLACE_SELECTED
+  REVIEW_POSTED
+  FRIEND_REQUEST
+  GENERIC
+  SOS // Added SOS type
+}
+
+enum NotificationChannel {
+  IN_APP
+  PUSH
+  EMAIL
+}
+
+enum DeliveryStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+enum NotificationPriority {
+  LOW
+  NORMAL
+  HIGH
+  CRITICAL
+}
+
+//////////////////////
+// Models
+//////////////////////
+
+model User {
+  id           Int     @id @default(autoincrement())
+  username     String  @unique
+  phone        String? @unique
+  passwordHash String? 
+
+  // Profile
+  displayName String?
+  avatarUrl   String? 
+  bio         String?
+
+  // External Auth
+  googleId String? @unique
+  appleId  String? @unique
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // relations
+  locations          UserLocation[]
+  memberships        RoomMember[] // Relation to the single active membership (enforced by RoomMember unique constraint)
+  authoredReviews    Review[]           @relation("authorReviews")
+  receivedReviews    Review[]           @relation("targetUserReviews")
+  proposerProposals  Proposal[]         @relation("proposerProposals")
+  responses          ProposalResponse[]
+  notifications      Notification[]     @relation("notificationRecipient")
+  notificationsActed Notification[]     @relation("notificationActor")
+  Room               Room[]
+
+  @@index([username])
+  @@index([phone])
+}
+
+model UserLocation {
+  id         Int      @id @default(autoincrement())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId     Int
+  latitude   Decimal  @db.Decimal(10, 7)
+  longitude  Decimal  @db.Decimal(10, 7)
+  accuracy   Int?
+  recordedAt DateTime @default(now())
+  isCurrent  Boolean  @default(false)
+
+  @@index([userId])
+  @@index([isCurrent])
+  @@index([recordedAt])
+}
+
+model Place {
+  id Int @id @default(autoincrement())
+
+  name        String
+  description String?
+  category    String? 
+
+  googlePlaceId String? @unique
+
+  coverImage String?
+  images     String[] 
+
+  address   String?
+  latitude  Decimal? @db.Decimal(10, 7)
+  longitude Decimal? @db.Decimal(10, 7)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  rooms        Room[]
+  reviews      Review[]
+  proposals    Proposal[]
+  Notification Notification[]
+
+  @@index([name])
+  @@index([latitude, longitude]) 
+  @@index([category])
+}
+
+model Room {
+  id          Int     @id @default(autoincrement())
+  name        String?
+  description String?
+  slug        String? @unique
+
+  // Privacy & Limits
+  isPrivate   Boolean @default(false)
+  pin         String @unique
+  maxMembers  Int? 
+
+  // --- GEOLOCATION LOGIC ---
+  // The anchor point for the room (usually where the Owner/Creator is)
+  latitude    Decimal? @db.Decimal(10, 7)
+  longitude   Decimal? @db.Decimal(10, 7)
+  maxDistance Int?     // Radius in KM. If set, users must be within this range of lat/long
+
+  // Context
+  place   Place? @relation(fields: [placeId], references: [id], onDelete: SetNull)
+  placeId Int? 
+
+  createdBy   User? @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdById Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  members      RoomMember[]
+  proposals    Proposal[]
+  Notification Notification[]
+
+  @@index([isPrivate])
+  @@index([placeId])
+}
+
+model RoomMember {
+  id        Int            @id @default(autoincrement())
+  room      Room           @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  roomId    Int
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    Int
+  role      RoomMemberRole @default(MEMBER)
+  joinedAt  DateTime       @default(now())
+  invitedBy Int?
+  meta      Json? 
+
+  // --- STRICT CONSTRAINT ---
+  // A user can only exist in this table once. 
+  // To join a new room, the old record must be deleted.
+  @@unique([userId]) 
+
+  @@unique([roomId, userId]) 
+  @@index([roomId])
+}
+
+model Proposal {
+  id         Int  @id @default(autoincrement())
+  room       Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  roomId     Int
+  proposer   User @relation("proposerProposals", fields: [proposerId], references: [id], onDelete: Cascade)
+  proposerId Int
+
+  place   Place? @relation(fields: [placeId], references: [id], onDelete: SetNull)
+  placeId Int?
+
+  proposedName      String?
+  proposedAddress   String?
+  proposedLatitude  Decimal? @db.Decimal(10, 7)
+  proposedLongitude Decimal? @db.Decimal(10, 7)
+
+  proposedDateStart DateTime?
+  proposedDateEnd   DateTime?
+
+  details String?
+  status  ProposalStatus @default(OPEN)
+
+  createdAt DateTime  @default(now())
+  expiresAt DateTime? 
+  closedAt  DateTime?
+
+  responses    ProposalResponse[]
+  Notification Notification[]
+
+  @@index([roomId])
+  @@index([proposerId])
+  @@index([status])
+}
+
+model ProposalResponse {
+  id          Int                  @id @default(autoincrement())
+  proposal    Proposal             @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  proposalId  Int
+  user        User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId      Int
+  response    ProposalResponseType @default(PENDING)
+  comment     String?
+  respondedAt DateTime?
+
+  @@unique([proposalId, userId]) 
+  @@index([proposalId])
+}
+
+model Review {
+  id       Int  @id @default(autoincrement())
+  author   User @relation("authorReviews", fields: [authorId], references: [id], onDelete: Cascade)
+  authorId Int
+
+  place   Place? @relation(fields: [placeId], references: [id], onDelete: Cascade)
+  placeId Int?
+
+  targetUser   User? @relation("targetUserReviews", fields: [targetUserId], references: [id], onDelete: Cascade)
+  targetUserId Int?
+
+  rating  Int      
+  comment String?
+  images  String[] 
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([authorId])
+  @@index([placeId])
+  @@index([targetUserId])
+}
+
+model Notification {
+  id      Int   @id @default(autoincrement())
+  user    User  @relation("notificationRecipient", fields: [userId], references: [id], onDelete: Cascade)
+  userId  Int
+  actor   User? @relation("notificationActor", fields: [actorId], references: [id], onDelete: SetNull)
+  actorId Int?
+
+  room       Room?     @relation(fields: [roomId], references: [id], onDelete: SetNull)
+  roomId     Int?
+  proposal   Proposal? @relation(fields: [proposalId], references: [id], onDelete: SetNull)
+  proposalId Int?
+  place      Place?    @relation(fields: [placeId], references: [id], onDelete: SetNull)
+  placeId    Int?
+  reviewId   Int?
+
+  type           NotificationType
+  channel        NotificationChannel  @default(IN_APP)
+  deliveryStatus DeliveryStatus       @default(PENDING)
+  priority       NotificationPriority @default(NORMAL)
+
+  title   String
+  body    String?
+  payload Json? 
+  link    String? 
+
+  isRead    Boolean   @default(false)
+  seenAt    DateTime?
+  createdAt DateTime  @default(now())
+  expiresAt DateTime?
+
+  attempts             Int                    @default(0)
+  lastAttemptAt        DateTime?
+  NotificationDelivery NotificationDelivery[]
+
+  @@index([userId, isRead])
+  @@index([userId, createdAt])
+  @@index([deliveryStatus])
+}
+
+model NotificationDelivery {
+  id             Int                 @id @default(autoincrement())
+  notification   Notification        @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  notificationId Int
+  deviceId       String? 
+  channel        NotificationChannel
+  status         DeliveryStatus      @default(PENDING)
+  errorMessage   String?
+  attemptedAt    DateTime?
+  createdAt      DateTime            @default(now())
+
+  @@index([notificationId])
+  @@index([status])
+}

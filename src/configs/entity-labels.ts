@@ -1,0 +1,61 @@
+type Locale = "ru" | "en";
+
+const LABELS: Record<Locale, Record<string, string>> = {
+  en: {
+    Permission: "Permission",
+    User: "User",
+    Role: "Role",
+    Company: "Company",
+    Object: "Object",
+    Project: "Project",
+    Category: "Category",
+    Counterparty: "Counterparty",
+    Product: "Product",
+    Price: "Price",
+    Transaction: "Transaction",
+    Document: "Document",
+    Warehouse: "Warehouse",
+    Item: "Item",
+    StockMovement: "Stock movement",
+    StockBalance: "Stock balance",
+    Employee: "Employee",
+    EmployeeProject: "Employee project",
+    Payroll: "Payroll",
+    Budget: "Budget",
+    AuditLog: "Audit log",
+    DataSource: "Data source",
+    Task: "Task",
+    ReportTemplate: "Report template",
+  },
+  ru: {
+    Permission: "Доступ",
+    User: "Пользователь",
+    Role: "Роль",
+    Company: "Компания",
+    Object: "Объект",
+    Project: "Проект",
+    Category: "Категория",
+    Counterparty: "Контрагент",
+    Product: "Товар",
+    Price: "Цена",
+    Transaction: "Транзакция",
+    Document: "Документ",
+    Warehouse: "Склад",
+    Item: "Номенклатура",
+    StockMovement: "Движение",
+    StockBalance: "Остаток",
+    Employee: "Сотрудник",
+    EmployeeProject: "Проект сотрудника",
+    Payroll: "Зарплата",
+    Budget: "Бюджет",
+    AuditLog: "Журнал аудита",
+    DataSource: "Источник данных",
+    Task: "Задача",
+    ReportTemplate: "Шаблон отчёта",
+  },
+};
+
+export function entityLabel(entity: string, locale: Locale = "ru"): string {
+  const dict = LABELS[locale] ?? LABELS.ru;
+  return dict[entity] ?? entity;
+}

@@ -1,0 +1,89 @@
+variables:
+  PROD_BRANCH: "main"
+  STAGING_BRANCH: "staging"
+  APP: "pioneer-backend"
+  DOCKER_CONFIG: "$CI_PROJECT_DIR/.config"
+
+stages:
+  - test
+  - prepare
+  - build
+  - deploy
+  - update-version
+
+test:
+  stage: test
+  script:
+    - npm install
+    - npm run lint
+    - npm run test
+    - npx tsc
+  rules:
+    - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
+
+prepare:
+  stage: prepare
+  image: "$CI_REGISTRY/devops/release"
+  script:
+    - VERSION="$(get-version $SM_URL $SM_VERSION_TOKEN $APP)"
+    - echo VERSION="$VERSION" >> variables.env
+    - update-version $SM_URL $SM_VERSION_TOKEN $APP
+  artifacts:
+    reports:
+      dotenv: variables.env
+  tags:
+    - docker
+  rules:
+    - if: $CI_COMMIT_BRANCH == $STAGING_BRANCH
+    - if: $CI_COMMIT_BRANCH == $PROD_BRANCH
+
+build_staging:
+  stage: build
+  needs:
+  - job: prepare
+    artifacts: true
+  before_script:
+    - mkdir -p "$DOCKER_CONFIG"
+    - echo $CI_REGISTRY_PASSWORD | docker login $CI_REGISTRY -u $CI_REGISTRY_USER --password-stdin
+  script: 
+    - docker build -f staging.Dockerfile -t $CI_REGISTRY_IMAGE:staging ./
+    - docker push $CI_REGISTRY_IMAGE --all-tags
+  rules:
+    - if: $CI_COMMIT_BRANCH == $STAGING_BRANCH
+
+build_production:
+  stage: build
+  needs:
+  - job: prepare
+    artifacts: true
+  before_script:
+    - mkdir -p "$DOCKER_CONFIG"
+    - echo $CI_REGISTRY_PASSWORD | docker login $CI_REGISTRY -u $CI_REGISTRY_USER --password-stdin
+  script:
+    - docker build -t $CI_REGISTRY_IMAGE:v$VERSION -t $CI_REGISTRY_IMAGE:latest ./
+    - docker push $CI_REGISTRY_IMAGE --all-tags
+  rules:
+    - if: $CI_COMMIT_BRANCH == $PROD_BRANCH
+
+deploy_staging:
+  stage: deploy
+  before_script:
+    - chmod 600 $SSH_KEY
+  script:
+    - ssh -i $SSH_KEY $SSH_USER@$SSH_SERVER \
+      "echo $CI_DEPLOY_PASSWORD | docker login $CI_REGISTRY -u $CI_DEPLOY_USER --password-stdin"
+    - ssh -i $SSH_KEY $SSH_USER@$SSH_SERVER "cd /opt/pioneer && bash deploy.sh staging"
+  rules:
+    - if: $CI_COMMIT_BRANCH == $STAGING_BRANCH
+
+deploy_production:
+  stage: deploy
+  before_script:
+    - chmod 600 $SSH_PROD_KEY
+  script:
+    - ssh -i $SSH_PROD_KEY $SSH_PROD_USER@$SSH_PROD_SERVER \
+      "echo $CI_DEPLOY_PASSWORD | docker login $CI_REGISTRY -u $CI_DEPLOY_USER --password-stdin"
+    - ssh -i $SSH_PROD_KEY $SSH_PROD_USER@$SSH_PROD_SERVER "cd /opt/pioner-prod && bash deploy.sh production"
+  rules:
+    - if: $CI_COMMIT_BRANCH == $PROD_BRANCH
+
