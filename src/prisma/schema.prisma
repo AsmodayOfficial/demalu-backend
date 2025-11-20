@@ -7,10 +7,6 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-//////////////////////
-// Enums
-//////////////////////
-
 enum RoomMemberRole {
   MEMBER
   MODERATOR
@@ -62,9 +58,6 @@ enum NotificationPriority {
   CRITICAL
 }
 
-//////////////////////
-// Models
-//////////////////////
 
 model User {
   id           Int     @id @default(autoincrement())
@@ -320,4 +313,24 @@ model NotificationDelivery {
 
   @@index([notificationId])
   @@index([status])
+}
+model Country {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  rank      Int?     // Ranking in the top 40 list
+  isoCode   String?  @unique // ISO 3166-1 alpha-2 code (e.g., "FR", "US")
+  cities    City[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model City {
+  id        Int      @id @default(autoincrement())
+  name      String
+  countryId Int
+  country   Country  @relation(fields: [countryId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([countryId])
 }

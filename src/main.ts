@@ -59,7 +59,7 @@ async function bootstrap() {
   SwaggerModule.setup(openApiConfig.path, app, document);
 
   console.log(`API documentation is available at ${openApiConfig.path}`);
-  await app.listen(process.env.PORT ?? 3002);
+  await app.listen(process.env.PORT ?? 3000);
 }
 
 bootstrap();

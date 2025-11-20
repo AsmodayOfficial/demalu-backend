@@ -74,7 +74,7 @@ CREATE TABLE "Room" (
     "description" TEXT,
     "slug" TEXT,
     "isPrivate" BOOLEAN NOT NULL DEFAULT false,
-    "pin" TEXT,
+    "pin" TEXT NOT NULL,
     "maxMembers" INTEGER,
     "latitude" DECIMAL(10,7),
     "longitude" DECIMAL(10,7),
@@ -189,6 +189,29 @@ CREATE TABLE "NotificationDelivery" (
     CONSTRAINT "NotificationDelivery_pkey" PRIMARY KEY ("id")
 );
 
+-- CreateTable
+CREATE TABLE "Country" (
+    "id" SERIAL NOT NULL,
+    "name" TEXT NOT NULL,
+    "rank" INTEGER,
+    "isoCode" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "Country_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "City" (
+    "id" SERIAL NOT NULL,
+    "name" TEXT NOT NULL,
+    "countryId" INTEGER NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "City_pkey" PRIMARY KEY ("id")
+);
+
 -- CreateIndex
 CREATE UNIQUE INDEX "User_username_key" ON "User"("username");
 
@@ -230,6 +253,9 @@ CREATE INDEX "Place_category_idx" ON "Place"("category");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "Room_slug_key" ON "Room"("slug");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Room_pin_key" ON "Room"("pin");
 
 -- CreateIndex
 CREATE INDEX "Room_isPrivate_idx" ON "Room"("isPrivate");
@@ -284,6 +310,15 @@ CREATE INDEX "NotificationDelivery_notificationId_idx" ON "NotificationDelivery"
 
 -- CreateIndex
 CREATE INDEX "NotificationDelivery_status_idx" ON "NotificationDelivery"("status");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Country_name_key" ON "Country"("name");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Country_isoCode_key" ON "Country"("isoCode");
+
+-- CreateIndex
+CREATE INDEX "City_countryId_idx" ON "City"("countryId");
 
 -- AddForeignKey
 ALTER TABLE "UserLocation" ADD CONSTRAINT "UserLocation_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
@@ -341,3 +376,6 @@ ALTER TABLE "Notification" ADD CONSTRAINT "Notification_placeId_fkey" FOREIGN KE
 
 -- AddForeignKey
 ALTER TABLE "NotificationDelivery" ADD CONSTRAINT "NotificationDelivery_notificationId_fkey" FOREIGN KEY ("notificationId") REFERENCES "Notification"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "City" ADD CONSTRAINT "City_countryId_fkey" FOREIGN KEY ("countryId") REFERENCES "Country"("id") ON DELETE CASCADE ON UPDATE CASCADE;
