@@ -6,6 +6,7 @@ import { LocationModule } from '../location/location.module';
 import { BotUpdate } from './update.service';
 import { PrismaService } from 'src/database/prisma.service';
 import { BotService } from './bot.service';
+import { ProposalModule } from '../proposal/proposal.module';
 
 @Module({
   imports: [
@@ -13,6 +14,7 @@ import { BotService } from './bot.service';
     NotificationModule,
     LocationModule,
     RoomModule,
+    ProposalModule
   ],
   providers: [BotUpdate, BotService, PrismaService],
 })

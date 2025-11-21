@@ -1,6 +1,5 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { Telegraf, Markup, session, Context } from 'telegraf';
-import { Message } from 'telegraf/typings/core/types/typegram';
 import * as bcrypt from 'bcryptjs';
 import { BotContext } from './bot.types';
 import { PrismaService } from 'src/database/prisma.service';
@@ -8,21 +7,26 @@ import { NotificationService } from '../notification/notification.service';
 import { UserLocationService } from '../location/location.service';
 import { RoomService } from '../room/room.service';
 import { Language, resolveUILang, translations } from './bot.i18n';
+// Confirmed correct relative path based on file names:
+import { WeatherProposalService } from '../proposal/gemini.service';
 
 @Injectable()
 export class BotService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(BotService.name);
-  private readonly bot: Telegraf<BotContext>;
+  private readonly bot: Telegraf<BotContext>; 
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly notificationService: NotificationService,
     private readonly locationService: UserLocationService,
     private readonly roomService: RoomService,
+    // 1. INJECT WeatherProposalService
+    private readonly weatherProposalService: WeatherProposalService,
   ) {
     const token = process.env.TELEGRAM_BOT_TOKEN;
     if (!token) throw new Error('TELEGRAM_BOT_TOKEN is not set');
 
+    // FIX: Instantiation moved to the constructor body
     this.bot = new Telegraf<BotContext>(token);
     
     // Initialize session
@@ -74,8 +78,10 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
   
   private getMainKeyboard(lang: Language) {
     const T = translations[lang];
+    // 2. ADD Budget Variants button
+    // T.btn_budget is now guaranteed to exist
     return Markup.keyboard([
-      [T.btn_sos],
+      [T.btn_sos, T.btn_budget],
       [Markup.button.locationRequest(T.btn_loc)], // Native Location Button
       [T.btn_my_room, T.btn_join],
       [T.btn_leave]
@@ -305,6 +311,27 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
         await ctx.reply(T.enter_pin, Markup.removeKeyboard());
     });
 
+    // --- START BUDGET FLOW ---
+    // FIX: Match on ALL language keys to ensure the handler is triggered regardless of user language.
+    const budgetKeys = [
+        translations.en.btn_budget,
+        translations.ru.btn_budget,
+        translations.kz.btn_budget,
+    ];
+
+    this.bot.hears(budgetKeys, async (ctx) => {
+        const user = await this.getUser(ctx);
+        if (!user) return;
+        const lang = resolveUILang(ctx);
+        const T = translations[lang];
+
+        ctx.session.step = 'waiting_for_budget';
+        ctx.session.budgetData = {}; // Initialize data storage
+        // Use the translated key
+        await ctx.reply(T.enter_budget, Markup.removeKeyboard());
+    });
+
+
     // --- TEXT HANDLER (Dynamic flows) ---
     this.bot.on('text', async (ctx) => {
         const lang = resolveUILang(ctx);
@@ -360,6 +387,94 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
                 await ctx.reply(e.message || T.error, this.getMainKeyboard(lang));
             }
             ctx.session.step = undefined;
+            return;
+        }
+
+        // --- 3. Handle Budget Flow Steps ---
+        if (ctx.session.step === 'waiting_for_budget') {
+            ctx.session.budgetData.budget = text;
+            ctx.session.step = 'waiting_for_city';
+            // Use translated key
+            await ctx.reply(T.enter_city);
+            return;
+        }
+
+        if (ctx.session.step === 'waiting_for_city') {
+            ctx.session.budgetData.city = text;
+            ctx.session.step = 'waiting_for_action_type';
+            // Use translated key
+            await ctx.reply(T.enter_action_type);
+            return;
+        }
+
+        if (ctx.session.step === 'waiting_for_action_type') {
+            ctx.session.budgetData.actionType = text;
+            ctx.session.step = undefined; // End flow
+            
+            const { budget, city, actionType } = ctx.session.budgetData;
+
+            // Notify user while processing
+            // Use translated key
+            const processingMessage = await ctx.reply(T.processing);
+
+            try {
+                const result = await this.weatherProposalService.getBudgetVariants(
+                    budget,
+                    city,
+                    actionType
+                );
+                
+                const variantsList = result.variants.map((v, i) => `${i + 1}. ${v}`).join('\n');
+                
+                // Use translated keys (fallbacks removed as keys are guaranteed)
+                const message = `
+*${T.budget_result_title}*
+
+${T.budget_summary}
+${result.summary}
+
+${T.budget_variants}
+${variantsList}
+
+${T.budget_maps} [Google Maps Link](${result.mapsLink})
+                `.trim();
+
+                // FIX: Instead of trying to pass ReplyKeyboardMarkup to editMessageText, 
+                // we edit the message text, and then send a separate message with the keyboard.
+                
+                // 1. Edit the loading message to the final result text
+                await ctx.telegram.editMessageText(
+                    processingMessage.chat.id, 
+                    processingMessage.message_id, 
+                    undefined, 
+                    message, 
+                    { 
+                        parse_mode: 'Markdown',
+                        // IMPORTANT: DO NOT include reply_markup here
+                    }
+                );
+                
+                // 2. Send a new message to display the main keyboard again
+                await ctx.reply(T.menu_main, this.getMainKeyboard(lang));
+
+            } catch (error) {
+                this.logger.error('Error in getBudgetVariants flow:', error.stack);
+                
+                // FIX: Edit the message to show the error, and send a separate message with the keyboard.
+                
+                // 1. Edit the loading message to the error text
+                 await ctx.telegram.editMessageText(
+                    processingMessage.chat.id, 
+                    processingMessage.message_id, 
+                    undefined, 
+                    T.budget_error, // Use translated error key
+                );
+                
+                // 2. Send a new message to display the main keyboard again
+                await ctx.reply(T.menu_main, this.getMainKeyboard(lang));
+            }
+            
+            ctx.session.budgetData = {}; // Clear temporary data
             return;
         }
     });

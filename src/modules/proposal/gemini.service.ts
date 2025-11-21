@@ -1,5 +1,5 @@
 import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
-import { ProposalRequestDto, ProposalResponseDto, FullProposalResponse, SourceAttribution } from './proposal.dto';
+import { ProposalRequestDto, ProposalResponseDto, FullProposalResponse, SourceAttribution, BudgetVariantResponseDto } from './proposal.dto';
 
 // Configuration
 const MODEL_NAME = 'gemini-2.5-flash-preview-09-2025';
@@ -162,6 +162,88 @@ export class WeatherProposalService {
       }
       this.logger.error('Error during Gemini API call', error.stack, error.message);
       throw new InternalServerErrorException('Error processing proposal prediction.');
+    }
+  }
+   async getBudgetVariants(budget: string, city: string, actionType: string): Promise<BudgetVariantResponseDto & { sources: SourceAttribution[] }> {
+    if (!this.apiKey) {
+        this.logger.error("API Key is missing for budget variants call.");
+        throw new InternalServerErrorException("API Key not configured. Authentication failed (403 Forbidden).");
+    }
+
+    // 1. Define the System Instruction (Persona & Rules) for structured JSON output
+    const systemPrompt = `You are a professional travel and event budget analyst. Your task is to analyze a user's budget, location, and activity request and output ONLY a single, strict JSON object. DO NOT include any markdown formatting (like \`\`\`json), commentary, or extra text.
+    
+    The response MUST be in Russian and the JSON object MUST contain the following three keys:
+    1. "summary": string (A concise summary of the findings and suitability of the budget for the requested action in the specified city.)
+    2. "variants": string[] (An array of at least 3 concrete, suggested activities or venues that fit the budget and city. Each item should be a short descriptive string.)
+    3. "mapsLink": string (A Google Maps search URL that links to the city or a general search query related to the activity, to help the user start planning.)`;
+
+    // 2. Define the User Query (Specific Task)
+    const userQuery = `Find suitable variants for an activity based on these parameters:
+    - Budget: "${budget}"
+    - City: "${city}"
+    - Activity Type: "${actionType}"
+    Determine the best options and generate a response as a raw JSON object as defined in your instructions.`;
+
+    const url = `${BASE_URL}/models/${MODEL_NAME}:generateContent?key=${this.apiKey}`;
+
+    const payload = {
+      contents: [{ parts: [{ text: userQuery }] }],
+      tools: [{ "google_search": {} }], // Enable Google Search grounding
+      systemInstruction: { parts: [{ text: systemPrompt }] },
+    };
+
+    try {
+      const response = await fetchWithRetry(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      const result = await response.json();
+      const candidate = result.candidates?.[0];
+
+      if (!candidate || !candidate.content?.parts?.[0]?.text) {
+        this.logger.error('Gemini API returned no content or unexpected structure for budget variants.', result);
+        throw new InternalServerErrorException('Failed to get a valid budget variant response from the prediction model.');
+      }
+
+      const jsonText = candidate.content.parts[0].text;
+      
+      // Clean up potential markdown wrappers
+      let cleanedJsonText = jsonText.trim();
+      if (cleanedJsonText.startsWith('```json')) {
+        cleanedJsonText = cleanedJsonText.substring('```json'.length).trim();
+      }
+      if (cleanedJsonText.endsWith('```')) {
+        cleanedJsonText = cleanedJsonText.substring(0, cleanedJsonText.length - '```'.length).trim();
+      }
+
+      const parsedPrediction: BudgetVariantResponseDto = JSON.parse(cleanedJsonText);
+
+      // Extract Grounding Sources
+      let sources: SourceAttribution[] = [];
+      const groundingMetadata = candidate.groundingMetadata;
+      if (groundingMetadata && groundingMetadata.groundingAttributions) {
+          sources = groundingMetadata.groundingAttributions
+              .map(attribution => ({
+                  uri: attribution.web?.uri,
+                  title: attribution.web?.title,
+              }))
+              .filter(source => source.uri && source.title);
+      }
+
+      this.logger.log(`Successfully predicted budget variants for: ${city} / ${actionType}`);
+      
+      // Combine the prediction data with the sources
+      return { ...parsedPrediction, sources };
+
+    } catch (error) {
+      if (error instanceof InternalServerErrorException) {
+          throw error;
+      }
+      this.logger.error('Error during budget variant Gemini API call', error.stack, error.message);
+      throw new InternalServerErrorException('Error processing budget variant prediction.');
     }
   }
 }

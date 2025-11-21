@@ -118,3 +118,8 @@ export interface SourceAttribution {
 export interface FullProposalResponse extends ProposalResponseDto {
   sources: SourceAttribution[];
 }
+export interface BudgetVariantResponseDto {
+  summary: string;
+  variants: string[]; // List of suggested activities/venues
+  mapsLink: string; // A Google Maps search URL for the city/activity
+}

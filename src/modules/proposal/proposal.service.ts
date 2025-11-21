@@ -153,6 +153,10 @@ export class ProposalService {
   // ---------------------------------------------------------
   async vote(userId: number, proposalId: number, dto: VoteProposalDto) {
     try {
+      console.log("dto", dto)
+      console.log("userId", userId)
+            console.log("proposalId", proposalId)
+
       const proposal = await this.prisma.proposal.findUnique({
         where: { id: proposalId },
       });
