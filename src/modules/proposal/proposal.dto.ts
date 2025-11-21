@@ -38,13 +38,11 @@ export class CreateProposalDto {
   proposedLongitude?: number;
 
   // Dates
-  @ApiPropertyOptional()
-  @IsOptional()
+  @ApiProperty()
   @IsDateString()
   proposedDateStart?: string;
 
-  @ApiPropertyOptional()
-  @IsOptional()
+  @ApiProperty()
   @IsDateString()
   proposedDateEnd?: string;
 

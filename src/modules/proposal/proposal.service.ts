@@ -92,40 +92,62 @@ export class ProposalService {
   // ---------------------------------------------------------
   // GET PROPOSALS (By Room)
   // ---------------------------------------------------------
-  async findAllByRoom(userId: number, roomId: number) {
+  async findAllProposalsForUserRooms(userId: number) {
     try {
-      const membership = await this.prisma.roomMember.findUnique({
-        where: { roomId_userId: { roomId, userId } },
+      // 1. Get all room IDs the user belongs to
+      const memberships = await this.prisma.roomMember.findMany({
+        where: { userId },
+        select: { roomId: true },
       });
-      if (!membership) throw new ForbiddenException('Access denied.');
 
-      return await this.prisma.proposal.findMany({
-        where: { roomId },
+      const roomIds = memberships.map(m => m.roomId);
+
+      if (roomIds.length === 0) {
+        return []; // User is not in any rooms, return empty array
+      }
+
+      // 2. Find all proposals where roomId is one of the user's rooms, including minimal response data
+      const proposalsWithResponses = await this.prisma.proposal.findMany({
+        where: {
+          roomId: { in: roomIds },
+        },
         include: {
           proposer: {
             select: { id: true, username: true, displayName: true, avatarUrl: true },
           },
           place: true,
+          // Fetch only the response type for aggregation
           responses: {
-            include: {
-              user: {
-                 select: { id: true, username: true, displayName: true, avatarUrl: true },
-              },
+            select: {
+              response: true,
             }
           },
-          _count: {
-            select: { responses: true },
-          },
+          // Removed _count selection
         },
         orderBy: { createdAt: 'desc' },
       });
+
+      // 3. Map the results to include calculated counts and exclude the raw responses array
+      return proposalsWithResponses.map(proposal => {
+        const acceptCount = proposal.responses.filter(r => r.response === 'ACCEPT').length;
+        const rejectCount = proposal.responses.filter(r => r.response === 'REJECT').length;
+        
+        // Destructure to exclude the 'responses' array from the final output
+        const { responses, ...restOfProposal } = proposal;
+
+        return {
+          ...restOfProposal,
+          acceptCount,
+          rejectCount,
+        };
+      });
+
     } catch (error) {
-      this.logger.error(`Find Proposals failed for room ${roomId}`, error.stack);
+      this.logger.error(`Find Proposals for user ${userId}'s rooms failed`, error.stack);
       if (error instanceof HttpException) throw error;
-      throw new InternalServerErrorException(`Failed to fetch proposals: ${error.message}`);
+      throw new InternalServerErrorException(`Failed to fetch proposals for user's rooms: ${error.message}`);
     }
   }
-
   // ---------------------------------------------------------
   // VOTE (Respond)
   // ---------------------------------------------------------

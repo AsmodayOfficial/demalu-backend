@@ -23,14 +23,13 @@ export class ProposalController {
     return this.proposalService.create(userId, dto);
   }
 
-  @Get('room/:roomId')
+  @Get()
   @ApiOperation({ summary: 'List all proposals for a specific room' })
   async findAllByRoom(
     @Request() req, 
-    @Param('roomId', ParseIntPipe) roomId: number
   ) {
     const userId = req.user?.id;
-    return this.proposalService.findAllByRoom(userId, roomId);
+    return this.proposalService.findAllProposalsForUserRooms(userId);
   }
 
   @Post(':id/vote')
