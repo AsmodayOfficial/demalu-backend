@@ -304,13 +304,24 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     });
 
     // --- JOIN ROOM (Request) ---
-    this.bot.hears(translations.en.btn_join, async (ctx) => {
-        const lang = resolveUILang(ctx);
-        const T = translations[lang];
-        ctx.session.step = 'waiting_for_pin';
-        await ctx.reply(T.enter_pin, Markup.removeKeyboard());
-    });
+const joinKeys = [
+    translations.en.btn_join,
+    translations.ru.btn_join,
+    translations.kz.btn_join,
+];
 
+// Use the array of keys in the handler registration
+this.bot.hears(joinKeys, async (ctx) => {
+    // Check if the user is authenticated first (good practice)
+    const user = await this.getUser(ctx);
+    if (!user) return; 
+    
+    const lang = resolveUILang(ctx);
+    const T = translations[lang];    
+    ctx.session.step = 'waiting_for_pin';
+    // Use the resolved/translated text T.enter_pin
+    await ctx.reply(T.enter_pin, Markup.removeKeyboard());
+});
     // --- START BUDGET FLOW ---
     // FIX: Match on ALL language keys to ensure the handler is triggered regardless of user language.
     const budgetKeys = [
@@ -379,16 +390,27 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
         if (!user) return; 
 
         // --- 2. Handle PIN Input ---
-        if (ctx.session.step === 'waiting_for_pin') {
-            try {
-                await this.roomService.joinRoomByPin(user.id, { pin: text });
-                await ctx.reply(`${T.room_joined} ${text}`, this.getMainKeyboard(lang));
-            } catch (e) {
-                await ctx.reply(e.message || T.error, this.getMainKeyboard(lang));
-            }
-            ctx.session.step = undefined;
-            return;
-        }
+        // --- 2. Handle PIN Input ---
+if (ctx.session.step === 'waiting_for_pin') {
+    // TEMPORARY DEBUGGING BLOCK:
+    const result = await this.roomService.joinRoomByPin(user.id, { pin: text })
+        .then(() => 'Success')
+        .catch(err => {
+            // If this logs, the service is correctly throwing a promise rejection.
+            console.error('Service threw error:', err.message); 
+            return { error: err.message };
+        });
+
+    if (result === 'Success') {
+        // Your success logic here
+        await ctx.reply(`${T.room_joined} ${text}`, this.getMainKeyboard(lang));
+        ctx.session.step = undefined; 
+    } else {
+        // Your error logic here
+        await ctx.reply(T.enter_pin);
+    }
+    return;
+}
 
         // --- 3. Handle Budget Flow Steps ---
         if (ctx.session.step === 'waiting_for_budget') {
