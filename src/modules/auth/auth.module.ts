@@ -9,5 +9,6 @@ import { CookieService } from "./service/cookie.service";
 @Module({
   controllers: [AuthController],
   providers: [AuthService, PrismaService, JwtService, JwtStrategy, CookieService],
+  exports: [AuthService]
 })
 export class AuthModule {}

@@ -38,6 +38,7 @@ export class AuthController {
 
   @Post("refresh")
   async refresh(@Body() dto: RefreshDto, @Res({ passthrough: true }) res: Response) {
+    console.log("dto34", dto)
     const { user, accessToken, refreshToken } = await this.authService.refresh(dto.refreshToken);
     this.cookieService.setAuthCookies(res, { accessToken, refreshToken });
     return { user, accessToken, refreshToken };

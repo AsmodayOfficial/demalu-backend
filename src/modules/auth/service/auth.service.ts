@@ -13,6 +13,7 @@ import { PrismaService } from '../../../database/prisma.service';
 import { RegisterDto } from '../api/dto/register.dto';
 import { LoginDto } from '../api/dto/login.dto';
 
+
 // ... existing types ...
 export type PublicUser = {
   id: number;
@@ -42,14 +43,19 @@ export class AuthService {
     private readonly jwt: JwtService,
   ) {}
 
-  // ... existing helpers (buildPublicUser, signTokens) ...
+  // ---------- Helpers ----------
+
   private buildPublicUser(user: any): PublicUser {
+    // Extract the active room PIN if it exists
+    // User has a unique constraint on memberships, so array is 0 or 1 length.
+    const activeRoom = user.memberships?.[0]?.room;
+
     return {
       id: user.id,
       username: user.username,
       displayName: user.displayName ?? null,
       avatarUrl: user.avatarUrl ?? null,
-      roomPin: '', 
+      roomPin: activeRoom?.pin ?? '', // Populate the PIN from the active room
       pv: 1,
       sv: 1,
     };
@@ -78,9 +84,11 @@ export class AuthService {
     return { accessToken, refreshToken };
   }
 
+  // ---------- Public Methods ----------
+
   async register(dto: RegisterDto) {
     try {
-      // ... existing logic ...
+      // ... existing checks ...
       const existingUsername = await this.prisma.user.findUnique({
         where: { username: dto.username },
       });
@@ -107,6 +115,7 @@ export class AuthService {
           displayName: dto.displayName,
           phone: dto.phone,
         },
+        // No include needed here, new user definitely has no room
       });
 
       const publicUser = this.buildPublicUser(newUser);
@@ -117,7 +126,7 @@ export class AuthService {
         ...tokens,
       };
     } catch (error) {
-      this.logger.error(`Register failed for ${dto.username}`, error.stack); // Log Error
+      this.logger.error(`Register failed for ${dto.username}`, error.stack); 
       if (error instanceof HttpException) throw error;
       throw new InternalServerErrorException(`Registration failed: ${error.message}`);
     }
@@ -125,12 +134,18 @@ export class AuthService {
 
   async login(dto: LoginDto) {
     try {
-      // ... existing logic ...
       const { username, password } = dto;
-      console.log("dto", dto)
 
       const user = await this.prisma.user.findUnique({
         where: { username },
+        include: {
+          // Include the membership to see if they are in a room
+          memberships: {
+            include: {
+              room: true, // Include room details (specifically for PIN)
+            },
+          },
+        },
       });
 
       if (!user || !user.passwordHash) {
@@ -150,7 +165,7 @@ export class AuthService {
         ...tokens,
       };
     } catch (error) {
-      this.logger.error(`Login failed for ${dto.username}`, error.stack); // Log Error
+      this.logger.error(`Login failed for ${dto.username}`, error.stack); 
       if (error instanceof HttpException) throw error;
       throw new InternalServerErrorException(`Login failed: ${error.message}`);
     }
@@ -171,6 +186,14 @@ export class AuthService {
 
       const user = await this.prisma.user.findUnique({
         where: { id: payload.sub },
+        include: {
+          // Also include room info during refresh so the token stays up to date
+          memberships: {
+            include: {
+              room: true,
+            },
+          },
+        },
       });
 
       if (!user) throw new UnauthorizedException('User not found');
@@ -180,7 +203,7 @@ export class AuthService {
 
       return { user: publicUser, ...tokens };
     } catch (error) {
-      this.logger.error(`Refresh token failed`, error.stack); // Log Error
+      this.logger.error(`Refresh token failed`, error.stack); 
       if (error instanceof HttpException) throw error;
       throw new InternalServerErrorException(`Refresh failed: ${error.message}`);
     }

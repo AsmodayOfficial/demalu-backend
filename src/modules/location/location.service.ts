@@ -59,7 +59,41 @@ export class UserLocationService {
       throw new InternalServerErrorException(`Failed to fetch current location: ${error.message}`);
     }
   }
-
+async getRoomMemberLocations(roomId: number, currentUserId: number) {
+    try {
+      return await this.prisma.userLocation.findMany({
+        where: {
+          isCurrent: true, // Only fetch the active location
+           userId: { not: currentUserId },
+          user: {
+            memberships: {
+              some: { roomId },
+            },
+          },
+        },
+        // Explicitly ensure we get one record per user (the latest)
+        distinct: ['userId'],
+        orderBy: { recordedAt: 'desc' },
+        select: {
+          latitude: true,
+          longitude: true,
+          accuracy: true,
+          recordedAt: true,
+          user: {
+            select: {
+              id: true,
+              username: true,
+              displayName: true,
+              avatarUrl: true,
+            },
+          },
+        },
+      });
+    } catch (error) {
+      this.logger.error(`Failed to fetch room locations`, error.stack);
+      return []; 
+    }
+  }
   // ---------------------------------------------------------
   // GET LOCATION HISTORY
   // ---------------------------------------------------------

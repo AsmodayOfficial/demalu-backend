@@ -69,6 +69,8 @@ model User {
   displayName String?
   avatarUrl   String? 
   bio         String?
+  telegramId   String? @unique
+  language     String  @default("en") // 'en', 'ru', 'kz'
 
   // External Auth
   googleId String? @unique

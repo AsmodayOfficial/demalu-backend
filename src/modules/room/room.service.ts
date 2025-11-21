@@ -150,7 +150,15 @@ export class RoomService {
         include: {
           room: {
             include: {
-              members: {
+              createdBy: {
+                    select: {
+                      id: true,
+                      username: true,
+                      displayName: true,
+                      avatarUrl: true,
+                    },
+                  },
+                                members: {
                 include: {
                   user: {
                     select: {
@@ -162,7 +170,7 @@ export class RoomService {
                   },
                 },
               },
-            },
+            }
           },
         },
       });

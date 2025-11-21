@@ -10,6 +10,8 @@ import { AuthModule } from "./modules/auth/auth.module";
 import { CountryModule } from "./modules/country/country.module";
 import { PlaceModule } from "./modules/place/place.module";
 import { LocationModule } from "./modules/location/location.module";
+import { NotificationModule } from "./modules/notification/notification.module";
+import { BotModule } from "./modules/bot/bot.module";
 
 @Module({
   imports: [
@@ -24,7 +26,9 @@ import { LocationModule } from "./modules/location/location.module";
     JobsModule,
     RoomModule,
     ProposalModule,
-    LocationModule
+    LocationModule,
+    NotificationModule,
+    BotModule
  ],
   controllers: [AppController],
   providers: [AppService, Logger],
