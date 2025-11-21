@@ -70,3 +70,53 @@ export class UpdateProposalStatusDto {
   @IsEnum(ProposalStatus)
   status: ProposalStatus;
 }
+// Input DTO for the proposal prediction request
+export class ProposalRequestDto {
+  @IsInt()
+  @IsNotEmpty()
+  roomCountMembers: number; // Corresponds to room.CountMembers
+
+  @IsString()
+  @IsNotEmpty()
+  proposedName: string;
+
+  @IsString()
+  @IsNotEmpty()
+  proposedAddress: string;
+
+  @IsString()
+  @IsNotEmpty()
+  proposedDateStart: string; // ISO Date String
+
+  @IsString()
+  @IsNotEmpty()
+  proposedDateEnd: string; // ISO Date String
+}
+
+// Output DTO matching the requested JSON structure
+export class ProposalResponseDto {
+  @IsNumber()
+  long: number; // proposedLongitude
+
+  @IsNumber()
+  lat: number; // proposedLatitude
+
+  @IsString()
+  @IsOptional()
+  whether: string; // The weather summary
+
+  @IsString()
+  @IsOptional()
+  prediction: string; // The prediction with grade
+}
+
+// Internal structure for handling grounded source data
+export interface SourceAttribution {
+  uri: string;
+  title: string;
+}
+
+// Extended response interface to include sources for debugging/display
+export interface FullProposalResponse extends ProposalResponseDto {
+  sources: SourceAttribution[];
+}

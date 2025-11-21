@@ -8,41 +8,76 @@ import {
   Logger, // Import Logger
 } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
-import { CreateProposalDto, VoteProposalDto, UpdateProposalStatusDto } from './proposal.dto';
+import { CreateProposalDto, VoteProposalDto, UpdateProposalStatusDto, ProposalRequestDto } from './proposal.dto';
+import { Prisma, Proposal } from '@prisma/client';
+import { WeatherProposalService } from './gemini.service';
 
 @Injectable()
 export class ProposalService {
   private readonly logger = new Logger(ProposalService.name); // Initialize Logger
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly weatherProposalService: WeatherProposalService ) {}
 
   // ---------------------------------------------------------
   // CREATE PROPOSAL
   // ---------------------------------------------------------
-  async create(userId: number, dto: CreateProposalDto) {
+  async create(userId: number, dto: CreateProposalDto): Promise<Proposal> {
     try {
-      // ... existing logic ...
+      // 1. Проверка членства (Existing Logic)
       const membership = await this.prisma.roomMember.findUnique({
         where: {
           roomId_userId: { roomId: dto.roomId, userId },
         },
       });
-
       if (!membership) {
         throw new ForbiddenException('You must be a member of the room to submit a proposal.');
       }
 
+      // 2. Получение количества участников комнаты для Gemini
+      // Предполагается, что модель Room имеет отношение 'members' для RoomMember.
+      const room = await this.prisma.room.findUnique({
+        where: { id: dto.roomId },
+        select: {
+            members: {
+                select: { userId: true } // Fetch members only to count them
+            }
+        },
+      });
+      
+      if (!room) {
+          throw new InternalServerErrorException(`Room with ID ${dto.roomId} not found.`);
+      }
+      const roomCountMembers = room.members.length;
+
+      // 3. Подготовка DTO для Gemini и вызов сервиса
+      const proposalRequest: ProposalRequestDto = {
+        roomCountMembers: roomCountMembers,
+        proposedName: dto.proposedName,
+        proposedAddress: dto.proposedAddress,
+        proposedDateStart: dto.proposedDateStart, 
+        proposedDateEnd: dto.proposedDateEnd,
+      };
+
+      this.logger.log(`Calling Gemini prediction for proposal: ${dto.proposedName}`);
+      
+      const predictionResult = await this.weatherProposalService.getProposalPrediction(proposalRequest);
+      
+      this.logger.log(`Gemini prediction received. Lat: ${predictionResult.lat}, Long: ${predictionResult.long}`);
+
+      // 4. Сохранение предложения, включая результаты Gemini
       return await this.prisma.proposal.create({
         data: {
           roomId: dto.roomId,
           proposerId: userId,
-          placeId: dto.placeId,
           proposedName: dto.proposedName,
           proposedAddress: dto.proposedAddress,
-          proposedLatitude: dto.proposedLatitude,
-          proposedLongitude: dto.proposedLongitude,
-          proposedDateStart: dto.proposedDateStart,
-          proposedDateEnd: dto.proposedDateEnd,
+          proposedLatitude: new Prisma.Decimal(predictionResult.lat), 
+          proposedLongitude: new Prisma.Decimal(predictionResult.long),
+                    whether: predictionResult.whether,
+          prediction: predictionResult.prediction, // Содержит текст на русском и оценку Grade A-F
+
+          proposedDateStart: new Date(dto.proposedDateStart), // Конвертируем обратно в Date для Prisma
+          proposedDateEnd: new Date(dto.proposedDateEnd),     // Конвертируем обратно в Date для Prisma
           details: dto.details,
           status: 'OPEN',
         },

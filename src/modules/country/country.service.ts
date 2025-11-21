@@ -130,7 +130,6 @@ export class RegionService {
     try {
       return await this.prisma.city.findMany({
         where: { countryId },
-        orderBy: { name: 'asc' },
         include: {
           country: { select: { name: true, isoCode: true } },
         },

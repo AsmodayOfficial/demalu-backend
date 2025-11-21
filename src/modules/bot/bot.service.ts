@@ -1,11 +1,13 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
-import { Telegraf, Markup, session } from 'telegraf';
-import { PrismaService } from '../../database/prisma.service';
+import { Telegraf, Markup, session, Context } from 'telegraf';
+import { Message } from 'telegraf/typings/core/types/typegram';
+import * as bcrypt from 'bcryptjs';
+import { BotContext } from './bot.types';
+import { PrismaService } from 'src/database/prisma.service';
 import { NotificationService } from '../notification/notification.service';
 import { UserLocationService } from '../location/location.service';
 import { RoomService } from '../room/room.service';
-import { translations, resolveUILang, Language } from './bot.i18n';
-import { BotContext } from './bot.types';
+import { Language, resolveUILang, translations } from './bot.i18n';
 
 @Injectable()
 export class BotService implements OnModuleInit, OnModuleDestroy {
@@ -31,7 +33,8 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       // Skip middleware for start/contact/language handlers
       if (ctx.message && 'text' in ctx.message) {
         const text = ctx.message.text;
-        if (text === '/start' || text.includes('English') || text.includes('Русский') || text.includes('Қазақша')) {
+        const isAuthFlow = text === '/start' || ['🇬🇧 English', '🇷🇺 Русский', '🇰🇿 Қазақша'].includes(text);
+        if (isAuthFlow) {
           return next();
         }
       }
@@ -42,9 +45,12 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       if (tgId) {
         const user = await this.prisma.user.findUnique({ where: { telegramId: tgId } });
         if (user) {
-          // Inject user language into session for this request context if needed
-          // Or just rely on DB language
           ctx.session.tempLang = (user.language as Language) || 'en';
+        } else if (!ctx.session.step) {
+           // User not found and not in a flow, prompt restart
+           const T = translations[resolveUILang(ctx)];
+           await ctx.reply(T.user_not_found);
+           return;
         }
       }
       return next();
@@ -61,6 +67,39 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
   onModuleDestroy() {
     this.bot.stop('SIGINT');
   }
+
+  // -------------------------------------------------------
+  // HELPERS
+  // -------------------------------------------------------
+  
+  private getMainKeyboard(lang: Language) {
+    const T = translations[lang];
+    return Markup.keyboard([
+      [T.btn_sos],
+      [Markup.button.locationRequest(T.btn_loc)], // Native Location Button
+      [T.btn_my_room, T.btn_join],
+      [T.btn_leave]
+    ]).resize();
+  }
+
+  private async getUser(ctx: BotContext) {
+    const tgId = ctx.from?.id.toString();
+    if (!tgId) return null;
+    
+    const user = await this.prisma.user.findUnique({ where: { telegramId: tgId } });
+    if (!user) {
+        const T = translations[resolveUILang(ctx)];
+        await ctx.reply(T.user_not_found);
+    }
+    return user;
+  }
+  
+  // Helper function to handle password hashing
+  private async hashPassword(password: string): Promise<string> {
+    const salt = await bcrypt.genSalt(10);
+    return bcrypt.hash(password, salt);
+  }
+
 
   // -------------------------------------------------------
   // HANDLERS REGISTRATION
@@ -123,32 +162,39 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       
       const lang = resolveUILang(ctx);
       const T = translations[lang];
+      
+      // Determine desired username: TG username or phone
+      const telegramUsername = ctx.from.username;
+      // Prioritize TG username, fall back to phone number
+      const desiredUsername = telegramUsername || phone; 
 
-      // Upsert Logic
+      // Upsert Logic (Partial: no password hash yet)
       // 1. Find by phone
       let user = await this.prisma.user.findUnique({ where: { phone } });
 
       if (user) {
-        // Update existing user with Telegram ID
+        // Update existing user with Telegram ID, language, and username
         user = await this.prisma.user.update({
           where: { id: user.id },
-          data: { telegramId: tgId, language: lang },
+          data: { 
+            telegramId: tgId, 
+            language: lang,
+            username: desiredUsername, 
+            displayName: user.displayName || contact.first_name,
+          },
         });
       } else {
-        // Create new user
-        // Check if tgId is taken (edge case: re-registering with diff phone?)
+        // Create new user or update existing TG user
         const existingTg = await this.prisma.user.findUnique({ where: { telegramId: tgId } });
         if (existingTg) {
-            // Maybe update phone? For now, we assume strict 1-to-1. 
-            // We'll just update the existing TG user.
             user = await this.prisma.user.update({
                 where: { id: existingTg.id },
-                data: { phone, language: lang }
+                data: { phone, language: lang, username: desiredUsername }
             });
         } else {
             user = await this.prisma.user.create({
                 data: {
-                  username: `tg_${tgId}`,
+                  username: desiredUsername,
                   phone: phone,
                   telegramId: tgId,
                   language: lang,
@@ -158,12 +204,13 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
         }
       }
 
-      await ctx.reply(T.registered, this.getMainKeyboard(lang));
-      ctx.session.step = undefined;
+      // Transition to password step
+      await ctx.reply(T.enter_password, Markup.removeKeyboard());
+      ctx.session.step = 'waiting_for_password';
     });
 
     // --- SOS ---
-    this.bot.hears(['🚨 SOS', 'SOS'], async (ctx) => {
+    this.bot.hears(translations.en.btn_sos, async (ctx) => {
       const user = await this.getUser(ctx);
       if (!user) return;
       const lang = resolveUILang(ctx);
@@ -178,46 +225,47 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     });
 
     // --- MY ROOM ---
-    this.bot.hears(['🏠 My Room', '🏠 Моя комната', '🏠 Менің бөлмем'], async (ctx) => {
+    this.bot.hears(translations.en.btn_my_room, async (ctx) => {
       const user = await this.getUser(ctx);
       if (!user) return;
       const lang = resolveUILang(ctx);
       const T = translations[lang];
 
-const room = await this.roomService.getMyRoom(user.id);
-if (!room) return ctx.reply(T.not_in_room);
+      // Note: Assumes getMyRoom returns room including { createdBy: true, members: { include: { user: true } } }
+      const room = await this.roomService.getMyRoom(user.id);
+      if (!room) return ctx.reply(T.not_in_room);
 
-// Format Date
-const createdAt = new Date(room.createdAt).toLocaleDateString();
+      // Format Date
+      const createdAt = new Date(room.createdAt).toLocaleDateString();
 
-// Format Host Name (safely fallback if null)
-const hostName = room.createdBy?.displayName || room.createdBy?.username || 'Unknown';
+      // Format Host Name (Using 'createdBy' as per the user's snippet)
+      const hostName = room.createdBy?.displayName || room.createdBy?.username || 'Unknown';
 
-// Format Member List (Limit to 10 names)
-const membersList = room.members
-  .slice(0, 10)
-  .map((m) => `• ${m.user.displayName || m.user.username}`)
-  .join('\n');
+      // Format Member List (Limit to 10 names)
+      const membersList = room.members
+        .slice(0, 10)
+        .map((m) => `• ${m.user.displayName || m.user.username}`)
+        .join('\n');
 
-const moreCount = room.members.length > 10 ? `\n...and ${room.members.length - 10} more` : '';
+      const moreCount = room.members.length > 10 ? `\n...and ${room.members.length - 10} more` : '';
 
-// Construct Message
-const message = `
-🏠 *${room.name}*
-📌 PIN: \`${room.pin}\`
-📝 *Desc:* ${room.description || 'N/A'}
-👑 *Host:* ${hostName}
-📅 *Created:* ${createdAt}
+      // Construct Message
+      const message = `
+      🏠 *${room.name}*
+      📌 PIN: \`${room.pin}\`
+      📝 *Desc:* ${room.description || 'N/A'}
+      👑 *Host:* ${hostName}
+      📅 *Created:* ${createdAt}
 
-👥 *Members (${room.members.length}):*
-${membersList}${moreCount}
-`.trim();
+      👥 *Members (${room.members.length}):*
+      ${membersList}${moreCount}
+      `.trim();
 
-await ctx.reply(message, { parse_mode: 'Markdown' });
+      await ctx.reply(message, { parse_mode: 'Markdown' });
     });
 
     // --- LEAVE ROOM ---
-    this.bot.hears(['🚪 Leave Room', '🚪 Выйти', '🚪 Шығу'], async (ctx) => {
+    this.bot.hears(translations.en.btn_leave, async (ctx) => {
         const user = await this.getUser(ctx);
         if (!user) return;
         const lang = resolveUILang(ctx);
@@ -250,7 +298,7 @@ await ctx.reply(message, { parse_mode: 'Markdown' });
     });
 
     // --- JOIN ROOM (Request) ---
-    this.bot.hears(['🔑 Join Room', '🔑 Войти в комнату', '🔑 Бөлмеге кіру'], async (ctx) => {
+    this.bot.hears(translations.en.btn_join, async (ctx) => {
         const lang = resolveUILang(ctx);
         const T = translations[lang];
         ctx.session.step = 'waiting_for_pin';
@@ -259,12 +307,51 @@ await ctx.reply(message, { parse_mode: 'Markdown' });
 
     // --- TEXT HANDLER (Dynamic flows) ---
     this.bot.on('text', async (ctx) => {
-        const user = await this.getUser(ctx);
-        if (!user) return; 
         const lang = resolveUILang(ctx);
         const T = translations[lang];
         const text = ctx.message.text.trim();
+        
+        // --- 1. Handle Password Input ---
+        if (ctx.session.step === 'waiting_for_password') {
+            const password = text;
 
+            if (password.length < 6) {
+                return ctx.reply('Password must be at least 6 characters long. Please try again.');
+            }
+
+            const tgId = ctx.from?.id.toString();
+            if (!tgId) return;
+
+            const currentUser = await this.prisma.user.findUnique({ where: { telegramId: tgId } });
+
+            if (currentUser) {
+                const passwordHash = await this.hashPassword(password);
+                
+                await this.prisma.user.update({
+                    where: { id: currentUser.id },
+                    data: { 
+                        passwordHash: passwordHash,
+                        // Clear phone number if it was temporarily used as the username
+                        username: currentUser.username.startsWith('+') && tgId ? ctx.from.username || currentUser.username : currentUser.username
+                    },
+                });
+                
+                await ctx.reply(T.registered, this.getMainKeyboard(lang));
+                ctx.session.step = undefined;
+                return;
+            } else {
+                this.logger.error(`User not found by TG ID during password step: ${tgId}`);
+                await ctx.reply(T.user_not_found);
+                ctx.session.step = undefined;
+                return;
+            }
+        }
+        
+        // --- Remaining handlers require authenticated user ---
+        const user = await this.getUser(ctx);
+        if (!user) return; 
+
+        // --- 2. Handle PIN Input ---
         if (ctx.session.step === 'waiting_for_pin') {
             try {
                 await this.roomService.joinRoomByPin(user.id, { pin: text });
@@ -276,25 +363,5 @@ await ctx.reply(message, { parse_mode: 'Markdown' });
             return;
         }
     });
-  }
-
-  // -------------------------------------------------------
-  // HELPERS
-  // -------------------------------------------------------
-  
-  private getMainKeyboard(lang: Language) {
-    const T = translations[lang];
-    return Markup.keyboard([
-      [T.btn_sos],
-      [Markup.button.locationRequest(T.btn_loc)], // Native Location Button
-      [T.btn_my_room, T.btn_join],
-      [T.btn_leave]
-    ]).resize();
-  }
-
-  private async getUser(ctx: BotContext) {
-    const tgId = ctx.from?.id.toString();
-    if (!tgId) return null;
-    return this.prisma.user.findUnique({ where: { telegramId: tgId } });
   }
 }

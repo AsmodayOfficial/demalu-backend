@@ -58,19 +58,18 @@ enum NotificationPriority {
   CRITICAL
 }
 
-
 model User {
   id           Int     @id @default(autoincrement())
   username     String  @unique
   phone        String? @unique
-  passwordHash String? 
+  passwordHash String?
 
   // Profile
   displayName String?
-  avatarUrl   String? 
+  avatarUrl   String?
   bio         String?
-  telegramId   String? @unique
-  language     String  @default("en") // 'en', 'ru', 'kz'
+  telegramId  String? @unique
+  language    String  @default("en") // 'en', 'ru', 'kz'
 
   // External Auth
   googleId String? @unique
@@ -114,12 +113,12 @@ model Place {
 
   name        String
   description String?
-  category    String? 
+  category    String?
 
   googlePlaceId String? @unique
 
   coverImage String?
-  images     String[] 
+  images     String[]
 
   address   String?
   latitude  Decimal? @db.Decimal(10, 7)
@@ -134,7 +133,7 @@ model Place {
   Notification Notification[]
 
   @@index([name])
-  @@index([latitude, longitude]) 
+  @@index([latitude, longitude])
   @@index([category])
 }
 
@@ -145,19 +144,17 @@ model Room {
   slug        String? @unique
 
   // Privacy & Limits
-  isPrivate   Boolean @default(false)
-  pin         String @unique
-  maxMembers  Int? 
+  isPrivate  Boolean @default(false)
+  pin        String  @unique
+  maxMembers Int?
 
-  // --- GEOLOCATION LOGIC ---
-  // The anchor point for the room (usually where the Owner/Creator is)
   latitude    Decimal? @db.Decimal(10, 7)
   longitude   Decimal? @db.Decimal(10, 7)
-  maxDistance Int?     // Radius in KM. If set, users must be within this range of lat/long
+  maxDistance Int? // Radius in KM. If set, users must be within this range of lat/long
 
   // Context
   place   Place? @relation(fields: [placeId], references: [id], onDelete: SetNull)
-  placeId Int? 
+  placeId Int?
 
   createdBy   User? @relation(fields: [createdById], references: [id], onDelete: SetNull)
   createdById Int?
@@ -182,23 +179,24 @@ model RoomMember {
   role      RoomMemberRole @default(MEMBER)
   joinedAt  DateTime       @default(now())
   invitedBy Int?
-  meta      Json? 
+  meta      Json?
 
   // --- STRICT CONSTRAINT ---
   // A user can only exist in this table once. 
   // To join a new room, the old record must be deleted.
-  @@unique([userId]) 
-
-  @@unique([roomId, userId]) 
+  @@unique([userId])
+  @@unique([roomId, userId])
   @@index([roomId])
 }
 
 model Proposal {
-  id         Int  @id @default(autoincrement())
-  room       Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  id         Int     @id @default(autoincrement())
+  room       Room    @relation(fields: [roomId], references: [id], onDelete: Cascade)
   roomId     Int
-  proposer   User @relation("proposerProposals", fields: [proposerId], references: [id], onDelete: Cascade)
+  proposer   User    @relation("proposerProposals", fields: [proposerId], references: [id], onDelete: Cascade)
   proposerId Int
+  whether    String?
+  prediction String?
 
   place   Place? @relation(fields: [placeId], references: [id], onDelete: SetNull)
   placeId Int?
@@ -215,7 +213,7 @@ model Proposal {
   status  ProposalStatus @default(OPEN)
 
   createdAt DateTime  @default(now())
-  expiresAt DateTime? 
+  expiresAt DateTime?
   closedAt  DateTime?
 
   responses    ProposalResponse[]
@@ -236,7 +234,7 @@ model ProposalResponse {
   comment     String?
   respondedAt DateTime?
 
-  @@unique([proposalId, userId]) 
+  @@unique([proposalId, userId])
   @@index([proposalId])
 }
 
@@ -251,9 +249,9 @@ model Review {
   targetUser   User? @relation("targetUserReviews", fields: [targetUserId], references: [id], onDelete: Cascade)
   targetUserId Int?
 
-  rating  Int      
+  rating  Int
   comment String?
-  images  String[] 
+  images  String[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -285,8 +283,8 @@ model Notification {
 
   title   String
   body    String?
-  payload Json? 
-  link    String? 
+  payload Json?
+  link    String?
 
   isRead    Boolean   @default(false)
   seenAt    DateTime?
@@ -306,7 +304,7 @@ model NotificationDelivery {
   id             Int                 @id @default(autoincrement())
   notification   Notification        @relation(fields: [notificationId], references: [id], onDelete: Cascade)
   notificationId Int
-  deviceId       String? 
+  deviceId       String?
   channel        NotificationChannel
   status         DeliveryStatus      @default(PENDING)
   errorMessage   String?
@@ -316,10 +314,11 @@ model NotificationDelivery {
   @@index([notificationId])
   @@index([status])
 }
+
 model Country {
   id        Int      @id @default(autoincrement())
   name      String   @unique
-  rank      Int?     // Ranking in the top 40 list
+  rank      Int? // Ranking in the top 40 list
   isoCode   String?  @unique // ISO 3166-1 alpha-2 code (e.g., "FR", "US")
   cities    City[]
   createdAt DateTime @default(now())

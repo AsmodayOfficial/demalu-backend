@@ -1,18 +1,20 @@
 import { 
   Controller, Post, Get, Body, Param, Request, Patch, ParseIntPipe, 
-  UseGuards
+  UseGuards,
+  UsePipes
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { ProposalService } from './proposal.service';
-import { CreateProposalDto, VoteProposalDto, UpdateProposalStatusDto } from './proposal.dto';
+import { CreateProposalDto, VoteProposalDto, UpdateProposalStatusDto, ProposalRequestDto, FullProposalResponse } from './proposal.dto';
 import { JwtAuthGuard } from '../auth/service/jwt.guard';
+import { WeatherProposalService } from './gemini.service';
 
 @ApiTags('Proposals')
 @Controller('proposals')
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth()
 export class ProposalController {
-  constructor(private readonly proposalService: ProposalService) {}
+  constructor(private readonly proposalService: ProposalService, private readonly gemini: WeatherProposalService) {}
 
   @Post()
   @ApiOperation({ summary: 'Create a new proposal in a room' })
@@ -51,5 +53,12 @@ export class ProposalController {
   ) {
     const userId = req.user?.id;
     return this.proposalService.updateStatus(userId, proposalId, dto);
+  }
+  @Post('predict')
+  async predictProposal(
+    @Body() proposalDto: ProposalRequestDto,
+  ): Promise<FullProposalResponse> {
+    // The DTO ensures the request body is correctly formatted.
+    return this.gemini.getProposalPrediction(proposalDto);
   }
 }
