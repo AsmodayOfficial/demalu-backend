@@ -17,30 +17,17 @@ export class OneSignalService {
   private readonly baseUrl = 'https://api.onesignal.com/notifications';
   
   // Replace with your actual keys or use Env variables
-  private readonly appId = '8ca6cc83-51f1-4660-9c38-8083061dc06e';
+  private readonly appId = '7e5cf75a-8343-4df7-81b0-d14d1f15ec9d';
   private readonly authKey = 'os_v2_app_rstmza2r6fdgbhbyqcbqmhoan33qknmxkj7ew5uy25iwfrb64n4tfgxvmo2hzb6f7f5j5ddjmcudyivg2jyf6vxkp35jhuqvbqic3uq';
 
   constructor(private readonly http: HttpService) {}
 
-  /**
-   * Sends an SOS notification to a list of user IDs.
-   */
   async sendSos(targetUserIds: number[], data: SosNotificationData) {
     if (!targetUserIds.length) return;
 
-    // Construct filters for multiple users: "user_id = 1 OR user_id = 2 ..."
-    // Note: OneSignal limits complex filters. For simple lists of UserIDs, 
-    // 'include_external_user_ids' is often easier, but we stick to tags if you use tags.
-    // This example assumes you map your DB ID to OneSignal 'external_user_id'.
-    
     const body = {
       app_id: this.appId,
       include_external_user_ids: targetUserIds.map(id => id.toString()), 
-      // If you strictly use TAGS, uncomment below and comment line above:
-      // filters: targetUserIds.map((id, index) => {
-      //   const filter = { field: "tag", key: "user_id", relation: "=", value: id.toString() };
-      //   return index < targetUserIds.length - 1 ? [filter, { operator: "OR" }] : filter;
-      // }).flat(),
       
       target_channel: 'push',
       headings: {
